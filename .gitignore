@@ -1,0 +1,17 @@
+# کلیدها و اسرار: هیچ‌وقت کامیت نشن
+API & KEYs.txt
+*.key
+.env
+.env.*
+
+# Node
+node_modules/
+
+# فایل‌هایِ پستِ لینکدین (جدا از پروژه)
+linkedin/
+
+# سیستم‌عامل و ادیتور
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
