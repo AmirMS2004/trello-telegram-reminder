@@ -19,6 +19,7 @@ function makeEnv(opts) {
   const cacheStore = {};
   const boards = opts.boards || { BOARD1: opts.board || { name: 'برد پایلوت', lists: [], members: [], cards: [] } };
   const boardStatus = {};
+  const cardStatus = {};
   let failChat = opts.failChat;
   let trelloStatus = 200;
 
@@ -40,7 +41,8 @@ function makeEnv(opts) {
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (k) => (k in props ? props[k] : null),
       setProperty: (k, v) => { props[k] = v; },
-      deleteProperty: (k) => { delete props[k]; }
+      deleteProperty: (k) => { delete props[k]; },
+      getProperties: () => Object.assign({}, props)
     }) },
     LockService: {
       getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }),
@@ -62,6 +64,7 @@ function makeEnv(opts) {
         const seg = pathPart.split('/').filter(Boolean).map(decodeURIComponent);
         const reply = (code, body) => ({ getResponseCode: () => code, getContentText: () => JSON.stringify(body) });
         if (seg[0] === 'cards') {
+          if (cardStatus[seg[1]]) return reply(cardStatus[seg[1]], {});
           for (const bid in boards) {
             const bb = boards[bid];
             const c = (bb.cards || []).find((x) => x.id === seg[1]);
@@ -101,7 +104,7 @@ function makeEnv(opts) {
   setCfg('board_id', opts.boardIds || 'BOARD1');
   setCfg('admin_chat_id', '999');
   setCfg('dry_run', opts.dryRun === false ? 'FALSE' : 'TRUE');
-  return { ctx, sheets, tgCalls, trelloCalls, props, setCfg, setTrelloStatus: (s) => { trelloStatus = s; }, setBoardStatus: (id, s) => { boardStatus[id] = s; }, setFailChat: (c) => { failChat = c; } };
+  return { ctx, sheets, tgCalls, trelloCalls, props, setCfg, setTrelloStatus: (s) => { trelloStatus = s; }, setBoardStatus: (id, s) => { boardStatus[id] = s; }, setFailChat: (c) => { failChat = c; }, setCardStatus: (id, s) => { cardStatus[id] = s; } };
 }
 
 const board = () => ({
@@ -397,6 +400,55 @@ test('اعلان: عضوِ لینک‌نشده یا اعلانِ خاموش، پ
   env2.act('addMemberToCard', { idMember: 'm1' }, 'm2');
   env2.ctx.runEvents();
   assert.equal(env2.tgCalls.length, 0);
+});
+
+test('کارتِ بدونِ دسترسی (۴۰۱): فقط همون کارت رد می‌شه و نقطه‌یِ شروع جلو می‌ره', () => {
+  const env = eventsEnv();
+  addPerson(env, 'm1', 'علی', '111', 'approved');
+  env.ctx.runEvents();
+  env.act('addMemberToCard', { idMember: 'm1' }, 'm2');
+  env.act('addMemberToCard', { card: { id: 'gone' }, idMember: 'm1' }, 'm2');
+  env.setCardStatus('gone', 401);
+  env.ctx.runEvents();
+  assert.equal(env.to('111').length, 1);
+  assert.equal(env.props.EVENT_CURSOR_BOARD1, 'a2');
+  assert.ok(env.sheets.Log.some((r) => r[1] === 'WARN' && String(r[2]).includes('gone')));
+});
+
+test('خطایِ موقتِ کارت (۵۰۳): اجرا متوقف می‌شه و اجرایِ بعد دوباره تلاش می‌کنه', () => {
+  const env = eventsEnv();
+  addPerson(env, 'm1', 'علی', '111', 'approved');
+  env.ctx.runEvents();
+  env.act('addMemberToCard', { idMember: 'm1' }, 'm2');
+  env.setCardStatus('c1', 503);
+  env.ctx.runEvents();
+  assert.equal(env.to('111').length, 0);
+  assert.equal(env.props.EVENT_CURSOR_BOARD1, 'a0');
+  env.setCardStatus('c1', 0);
+  env.ctx.runEvents();
+  assert.equal(env.to('111').length, 1);
+});
+
+test('شمارشِ درخواست‌ها: جمعِ روز به تفکیکِ تابع، گزارشِ روزِ قبل در Log، و هشدارِ اجرایِ پرمصرف', () => {
+  const env = eventsEnv();
+  addPerson(env, 'm1', 'علی', '111', 'approved');
+  env.ctx.runEvents(); // ۱ درخواست (نقطه‌یِ شروع)
+  env.ctx.runReminders(); // ۱ برد + پیام‌ها
+  const day = (ms) => 'USAGE_' + new Date(ms + 210 * 60000).toISOString().slice(0, 10);
+  const u = JSON.parse(env.props[day(NOW)]);
+  assert.equal(u.runEvents, 1);
+  assert.ok(u.runReminders >= 1);
+  assert.equal(env.trelloCalls.length + env.tgCalls.length, u.runEvents + u.runReminders);
+
+  // روزِ بعد: جمعِ دیروز یک بار لاگ و پاک می‌شه
+  env.ctx.nowMs_ = () => NOW + 24 * HOUR;
+  env.ctx.FETCH_WARN_PER_RUN = 1;
+  env.ctx.runEvents();
+  assert.equal(env.props[day(NOW)], undefined);
+  const info = env.sheets.Log.filter((r) => r[1] === 'INFO');
+  assert.equal(info.length, 1);
+  assert.ok(String(info[0][2]).includes('runEvents: 1'));
+  assert.ok(env.sheets.Log.some((r) => r[1] === 'WARN' && String(r[2]).startsWith('runEvents: 1 درخواست')));
 });
 
 test('setup روی نصبِ قدیمی:کلیدهایِ جدیدِ Config اضافه می‌شن و مقدارهایِ قبلی می‌مونن', () => {

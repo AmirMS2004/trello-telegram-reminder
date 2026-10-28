@@ -61,11 +61,50 @@ function cfg_() {
   };
 }
 
+/* ---------- شمارشِ درخواست‌هایِ بیرونی (سقفِ روزانه‌یِ UrlFetch برایِ کلِ حسابِ گوگل) ---------- */
+
+var FETCH_COUNT_ = 0;
+var FETCH_WARN_PER_RUN = 100;
+
+function fetch_(url, opts) {
+  FETCH_COUNT_++;
+  return UrlFetchApp.fetch(url, opts);
+}
+
+/**
+ * تعدادِ درخواست‌هایِ این اجرا رو به جمعِ روز (به وقتِ تهران) اضافه می‌کنه.
+ * اجرایِ پرمصرف همون موقع WARN می‌گیره؛ جمعِ روزهایِ قبل یک بار به‌صورتِ INFO توی Log ثبت و پاک می‌شه.
+ */
+function recordUsage_(source, detail) {
+  var n = FETCH_COUNT_;
+  FETCH_COUNT_ = 0;
+  if (!n) return;
+  if (n >= FETCH_WARN_PER_RUN) log_('WARN', source + ': ' + n + ' درخواست در یک اجرا' + (detail ? ' (' + detail + ')' : ''));
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var key = 'USAGE_' + new Date(nowMs_() + 210 * 60000).toISOString().slice(0, 10);
+    var all = props.getProperties();
+    Object.keys(all).forEach(function (k) {
+      if (k.indexOf('USAGE_') !== 0 || k === key) return;
+      var u = {};
+      try { u = JSON.parse(all[k]); } catch (e) { u = {}; }
+      var total = Object.keys(u).reduce(function (s, x) { return s + u[x]; }, 0);
+      log_('INFO', 'درخواست‌هایِ بیرونیِ ' + k.slice(6) + ': ' + total + ' (' +
+        Object.keys(u).map(function (x) { return x + ': ' + u[x]; }).join('، ') + ')');
+      props.deleteProperty(k);
+    });
+    var today = {};
+    try { today = JSON.parse(all[key] || '{}'); } catch (e) { today = {}; }
+    today[source] = (today[source] || 0) + n;
+    props.setProperty(key, JSON.stringify(today));
+  } catch (e) { /* شمارش نباید کارِ اصلی رو خراب کنه */ }
+}
+
 /* ---------- Trello و Telegram ---------- */
 
 /** GET روی API ِ Trello (path با / شروع می‌شه). اگه allow404 باشه، ۴۰۴ به‌جایِ خطا null برمی‌گردونه. */
 function trelloGet_(path, allow404) {
-  var res = UrlFetchApp.fetch('https://api.trello.com/1' + path, {
+  var res = fetch_('https://api.trello.com/1' + path, {
     muteHttpExceptions: true,
     headers: { Authorization: 'OAuth oauth_consumer_key="' + prop_('TRELLO_KEY') + '", oauth_token="' + prop_('TRELLO_TOKEN') + '"' }
   });
@@ -115,7 +154,7 @@ function notifyErrorThrottled_(text) {
 }
 
 function tg_(method, payload) {
-  var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + prop_('TELEGRAM_TOKEN') + '/' + method, {
+  var res = fetch_('https://api.telegram.org/bot' + prop_('TELEGRAM_TOKEN') + '/' + method, {
     method: 'post',
     contentType: 'application/json',
     payload: JSON.stringify(payload || {}),
@@ -212,6 +251,7 @@ function runReminders() {
     log_('ERROR', err && err.message ? err.message : err);
     notifyErrorThrottled_('خطا در بات یادآوری: ' + (err && err.message ? err.message : err));
   } finally {
+    recordUsage_('runReminders');
     lock.releaseLock();
   }
 }
@@ -262,6 +302,7 @@ function boardMemberList_(boardId) {
 function runEvents() {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) return;
+  var stats = '';
   try {
     var cfg = cfg_();
     if (!cfg.notifyAssign && !cfg.notifyMention) return;
@@ -309,8 +350,18 @@ function runEvents() {
       var cards = {};
       actions.forEach(function (a) {
         var id = a.data && a.data.card && a.data.card.id;
-        if (id && !(id in cards)) cards[id] = trelloCard_(id);
+        if (!id || id in cards) return;
+        try {
+          cards[id] = trelloCard_(id);
+        } catch (err) {
+          // بدونِ دسترسی (مثلاً کارت به بردی رفته که توکن نمی‌بینه): فقط همین کارت رد می‌شه تا نقطه‌یِ شروع قفل نشه.
+          // خطاهایِ موقت (۴۲۹ و ۵xx) کلِ اجرا رو متوقف می‌کنن تا اجرایِ بعد دوباره تلاش کنه.
+          if (!/HTTP (401|403)\b/.test(err && err.message)) throw err;
+          cards[id] = null;
+          log_('WARN', 'کارتِ ' + id + ' خونده نشد (' + err.message + ')؛ اعلان‌هایِ این کارت رد شد.');
+        }
       });
+      stats = 'actions: ' + actions.length + '، cards: ' + Object.keys(cards).length;
       var byUsername = {};
       boardsWithActions.forEach(function (id) {
         boardMemberList_(id).forEach(function (m) {
@@ -359,6 +410,7 @@ function runEvents() {
     log_('ERROR', 'اعلان‌ها: ' + (err && err.message ? err.message : err));
     notifyErrorThrottled_('خطا در اعلانِ اساین/منشن: ' + (err && err.message ? err.message : err));
   } finally {
+    recordUsage_('runEvents', stats);
     lock.releaseLock();
   }
 }
@@ -376,6 +428,8 @@ function doPost(e) {
     handleUpdate_(update);
   } catch (err) {
     log_('ERROR', 'doPost: ' + (err && err.message ? err.message : err));
+  } finally {
+    recordUsage_('doPost');
   }
   return ContentService.createTextOutput('ok');
 }
