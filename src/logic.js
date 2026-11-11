@@ -47,6 +47,26 @@ var Logic = (function () {
     return faDigits(m) + ' دقیقه';
   }
 
+  /** «20-8» یا «20:30-07:45» ← { start, end } به دقیقه از نیمه‌شب؛ خالی یا نامعتبر یا شروع = پایان ← null (خاموش). */
+  function parseQuietHours(s) {
+    var m = String(s || '').trim().match(/^(\d{1,2})(?::(\d{2}))?\s*-\s*(\d{1,2})(?::(\d{2}))?$/);
+    if (!m) return null;
+    var start = Number(m[1]) * 60 + Number(m[2] || 0);
+    var end = Number(m[3]) * 60 + Number(m[4] || 0);
+    if (Number(m[1]) > 24 || Number(m[3]) > 24 || Number(m[2] || 0) > 59 || Number(m[4] || 0) > 59) return null;
+    start %= 1440;
+    end %= 1440;
+    return start === end ? null : { start: start, end: end };
+  }
+
+  /** آیا لحظه‌یِ nowMs (به وقتِ محلی) داخلِ ساعتِ سکوته؟ بازه‌یِ ردشونده از نیمه‌شب (مثلاً ۲۰ تا ۸) هم پشتیبانی می‌شه. */
+  function inQuietHours(nowMs, quiet, offsetMin) {
+    if (!quiet) return false;
+    var d = new Date(nowMs + offsetMin * 60000);
+    var t = d.getUTCHours() * 60 + d.getUTCMinutes();
+    return quiet.start < quiet.end ? (t >= quiet.start && t < quiet.end) : (t >= quiet.start || t < quiet.end);
+  }
+
   /** مرحله‌هایی (ساعت) که آستانه‌شون رد شده و موعد هنوز نرسیده؛ از بزرگ به کوچک. */
   function crossedStages(dueMs, nowMs, stageHours, unitMs) {
     if (!(dueMs > nowMs)) return [];
@@ -267,6 +287,8 @@ var Logic = (function () {
     gregorianToJalali: gregorianToJalali,
     formatJalali: formatJalali,
     timeLeftText: timeLeftText,
+    parseQuietHours: parseQuietHours,
+    inQuietHours: inQuietHours,
     crossedStages: crossedStages,
     stageKey: stageKey,
     decideReminders: decideReminders,

@@ -25,6 +25,7 @@ Trello REST API (read-only) ──► Google Apps Script (time triggers) ──�
 - **Dry-run mode** sends every message to the admin only, for safe rollout.
 - **Exactly-once delivery** per card, due date, stage and member; failed sends are retried on the next run.
 - **Multi-board**: one summary per person across all boards; one failing board doesn't stop the others.
+- **Quiet hours** (e.g. `20-8`): nothing is sent overnight; reminders and notifications from that window go out when it ends.
 - Secrets live only in Apps Script **Script Properties**, never in the sheet or the code.
 
 **Project layout**
@@ -135,6 +136,7 @@ The step-by-step setup guide below is in Persian. In short:
 - کارتی که تازه دیده می‌شه و چند مرحله‌ش رد شده، فقط **فوری‌ترین** مرحله رو می‌گیره.
 - کارتِ `dueComplete`، آرشیوشده، یا توی لیست‌هایِ `ignore_lists` نادیده گرفته می‌شه.
 - هر نفر در هر اجرا یک پیامِ خلاصه می‌گیره.
+- **ساعتِ سکوت:** با `quiet_hours` در `Config` (مثلاً `20-8` یا `20:30-07:00`، به وقتِ تهران) در این بازه هیچ پیامی نمی‌ره و هیچ درخواستی هم زده نمی‌شه. یادآوری‌ها و اعلان‌هایِ اساین/منشنِ این مدت در اولین اجرایِ بعد از پایانِ بازه ارسال می‌شن (یادآوری حداکثر ۳۰ دقیقه و اعلان حداکثر `event_poll_minutes` دقیقه بعد از شروعِ ساعتِ باز). یادآوری‌ای که موعدش خودش داخلِ بازه‌یِ سکوت تموم بشه، دیگه ارسال نمی‌شه. جواب‌هایِ بات به `/start` و تأییدِ ادمین شامل نمی‌شن. خالی گذاشتن یعنی خاموش.
 - اگه ارسالی شکست بخوره، ثبت نمی‌شه و ۳۰ دقیقه بعد دوباره تلاش می‌شه. خطاها توی شیتِ `Log` و (حداکثر ساعتی یک بار) به ادمین گزارش می‌شن.
 - **مصرفِ درخواست‌ها:** تعدادِ درخواست‌هایِ بیرونی (Trello و Telegram) شمرده می‌شه. جمعِ هر روز (به وقتِ تهران، به تفکیکِ `runEvents`، `runReminders` و `doPost`) اولین اجرایِ روزِ بعد به‌صورتِ `INFO` توی `Log` ثبت می‌شه. اجرایی که بیشتر از ۱۰۰ درخواست بزنه همون موقع `WARN` با جزئیات می‌گیره. سقفِ روزانه‌یِ UrlFetch برایِ کلِ حسابِ گوگل مشترکه (Gmail: ۲۰٬۰۰۰، Workspace: ۱۰۰٬۰۰۰).
 

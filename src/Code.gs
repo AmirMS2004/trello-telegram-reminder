@@ -19,7 +19,8 @@ var DEFAULT_CONFIG = [
   ['webapp_url', '', 'آدرسِ Web App بعد از Deploy (…/exec)'],
   ['notify_assign', 'TRUE', 'TRUE: وقتی تسکی به کسی سپرده می‌شه بهش پیام بره'],
   ['notify_mention', 'TRUE', 'TRUE: وقتی کسی در کامنت یا توضیحاتِ کارت منشن می‌شه بهش پیام بره'],
-  ['event_poll_minutes', '10', 'هر چند دقیقه اساین/منشن‌هایِ جدید چک بشن (1، 5، 10، 15 یا 30). بعد از تغییر installTriggers رو دوباره اجرا کن']
+  ['event_poll_minutes', '10', 'هر چند دقیقه اساین/منشن‌هایِ جدید چک بشن (1، 5، 10، 15 یا 30). بعد از تغییر installTriggers رو دوباره اجرا کن'],
+  ['quiet_hours', '', 'ساعتِ سکوت به وقتِ محلی، مثلاً 20-8 یا 20:30-07:00. در این بازه پیامی نمی‌ره و یادآوری‌ها و اعلان‌هایِ این مدت اولِ ساعتِ باز ارسال می‌شن. خالی: خاموش']
 ];
 
 /* ---------- ابزارهایِ کوچک ---------- */
@@ -57,8 +58,14 @@ function cfg_() {
     webappUrl: c.webapp_url.trim(),
     notifyAssign: c.notify_assign.trim().toUpperCase() !== 'FALSE',
     notifyMention: c.notify_mention.trim().toUpperCase() !== 'FALSE',
-    eventPollMin: [1, 5, 10, 15, 30].indexOf(Number(c.event_poll_minutes)) !== -1 ? Number(c.event_poll_minutes) : 10
+    eventPollMin: [1, 5, 10, 15, 30].indexOf(Number(c.event_poll_minutes)) !== -1 ? Number(c.event_poll_minutes) : 10,
+    quietHours: Logic.parseQuietHours(c.quiet_hours)
   };
+}
+
+/** داخلِ ساعتِ سکوت، اجرا بی‌هیچ درخواستی رد می‌شه. چیزی ثبت نمی‌شه (Sent و نقطه‌یِ شروعِ اعلان‌ها)، پس اجرایِ اولِ ساعتِ باز همه‌ی جامونده‌ها رو می‌فرسته. */
+function isQuiet_(cfg) {
+  return Logic.inQuietHours(nowMs_(), cfg.quietHours, cfg.tzOffsetMin);
 }
 
 /* ---------- شمارشِ درخواست‌هایِ بیرونی (سقفِ روزانه‌یِ UrlFetch برایِ کلِ حسابِ گوگل) ---------- */
@@ -197,6 +204,7 @@ function runReminders() {
   if (!lock.tryLock(20000)) return;
   try {
     var cfg = cfg_();
+    if (isQuiet_(cfg)) return;
     if (!cfg.boardIds.length) throw new Error('board_id در Config خالیه');
     var board = fetchBoards_(cfg.boardIds);
     board.errors.forEach(function (e) { log_('ERROR', 'برد ' + e.id + ': ' + e.message); });
@@ -306,6 +314,7 @@ function runEvents() {
   try {
     var cfg = cfg_();
     if (!cfg.notifyAssign && !cfg.notifyMention) return;
+    if (isQuiet_(cfg)) return;
     if (!cfg.boardIds.length) throw new Error('board_id در Config خالیه');
     var props = PropertiesService.getScriptProperties();
 

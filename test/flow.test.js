@@ -461,6 +461,42 @@ test('setup روی نصبِ قدیمی:کلیدهایِ جدیدِ Config اضا
   assert.equal(env.sheets.Config.find((r) => r[0] === 'board_id')[1], 'BOARD1');
 });
 
+/* ---------- ساعتِ سکوت (NOW = ۱۳:۳۰ به وقتِ تهران) ---------- */
+
+test('ساعتِ سکوت: یادآوری بی‌هیچ درخواستی عقب می‌افته و اولِ ساعتِ باز ارسال می‌شه', () => {
+  const env = makeEnv({ board: board(), dryRun: false });
+  addPerson(env, 'm1', 'علی', '111', 'approved');
+  env.setCfg('quiet_hours', '13-14');
+  env.ctx.runReminders();
+  assert.equal(env.tgCalls.length, 0);
+  assert.equal(env.trelloCalls.length, 0);
+  assert.equal(env.sheets.Sent.length, 1);
+
+  env.ctx.nowMs_ = () => NOW + HOUR; // ۱۴:۳۰
+  env.ctx.runReminders();
+  const toAli = env.tgCalls.filter((c) => String(c.payload.chat_id) === '111');
+  assert.equal(toAli.length, 1);
+  assert.ok(toAli[0].payload.text.includes('گزارش فروش'));
+});
+
+test('ساعتِ سکوت: اعلانِ اساین نگه داشته می‌شه و اولِ ساعتِ باز می‌ره', () => {
+  const env = eventsEnv();
+  addPerson(env, 'm1', 'علی', '111', 'approved');
+  env.ctx.runEvents(); // نقطه‌یِ شروع
+  env.setCfg('quiet_hours', '13-14');
+  env.act('addMemberToCard', { idMember: 'm1' }, 'm2');
+  env.trelloCalls.length = 0;
+  env.ctx.runEvents();
+  assert.equal(env.tgCalls.length, 0);
+  assert.equal(env.trelloCalls.length, 0);
+  assert.equal(env.props.EVENT_CURSOR_BOARD1, 'a0');
+
+  env.ctx.nowMs_ = () => NOW + HOUR;
+  env.ctx.runEvents();
+  assert.equal(env.to('111').length, 1);
+  assert.ok(env.to('111')[0].payload.text.includes('سپرده شد'));
+});
+
 /* ---------- شبیه‌سازیِ زمان: trigger هر ~۳۰ دقیقه، سه پیام برایِ هر کارت ---------- */
 
 function simulate({ jitter, failAtRun, extra }) {

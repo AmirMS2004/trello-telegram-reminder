@@ -120,6 +120,33 @@ test('timeLeftText', () => {
   assert.equal(H.timeLeftText(25 * 60000), '۲۵ دقیقه');
 });
 
+test('parseQuietHours: ساعت و دقیقه؛ خالی، نامعتبر یا شروع = پایان ← خاموش', () => {
+  assert.deepEqual(H.parseQuietHours('20-8'), { start: 1200, end: 480 });
+  assert.deepEqual(H.parseQuietHours(' 20:30 - 07:45 '), { start: 1230, end: 465 });
+  assert.deepEqual(H.parseQuietHours('0-24'), null);
+  assert.equal(H.parseQuietHours(''), null);
+  assert.equal(H.parseQuietHours('8-8'), null);
+  assert.equal(H.parseQuietHours('25-8'), null);
+  assert.equal(H.parseQuietHours('20:75-8'), null);
+  assert.equal(H.parseQuietHours('شب'), null);
+});
+
+test('inQuietHours: بازه‌یِ ردشونده از نیمه‌شب، به وقتِ تهران', () => {
+  const q = H.parseQuietHours('20-8');
+  const at = (hhmm) => Date.parse('2026-10-14T' + hhmm + ':00+03:30');
+  assert.equal(H.inQuietHours(at('19:59'), q, 210), false);
+  assert.equal(H.inQuietHours(at('20:00'), q, 210), true);
+  assert.equal(H.inQuietHours(at('23:30'), q, 210), true);
+  assert.equal(H.inQuietHours(at('03:00'), q, 210), true);
+  assert.equal(H.inQuietHours(at('07:59'), q, 210), true);
+  assert.equal(H.inQuietHours(at('08:00'), q, 210), false);
+  assert.equal(H.inQuietHours(at('13:30'), q, 210), false);
+  const day = H.parseQuietHours('13-14');
+  assert.equal(H.inQuietHours(at('13:30'), day, 210), true);
+  assert.equal(H.inQuietHours(at('14:00'), day, 210), false);
+  assert.equal(H.inQuietHours(at('03:00'), null, 210), false);
+});
+
 test('crossedStages: فقط وقتی موعد نرسیده و آستانه رد شده', () => {
   assert.deepEqual(H.crossedStages(NOW + 60 * HOUR, NOW, [48, 24, 12], HOUR), []);
   assert.deepEqual(H.crossedStages(NOW + 40 * HOUR, NOW, [48, 24, 12], HOUR), [48]);
